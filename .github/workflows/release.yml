@@ -1,0 +1,387 @@
+# Stages a release to npm under the `beta` dist-tag, from a maintainer-signed vX.Y.Z tag on main.
+# docs/contributor/releasing.md has the maintainer's steps. The jobs, in order:
+# 1. verify-tag: scripts/verify-release-tag.ts checks the tag: signed by a key in
+#    .github/release-keys/, its name equal to the version in package.json at the tagged commit, a
+#    plain X.Y.Z, and the commit on main. Then the commit must have a passing ci.yml run.
+# 2. pack: install from the lockfile, `pnpm run pkg:check`, then one tarball with `gitHead` set to
+#    the tagged commit. publint and are-the-types-wrong run again on the tarball, so the files
+#    checked are the files published. scripts/check-tarballs.ts checks the tarball, and its SHA-256
+#    sum leaves the job as a job output, apart from the artifact it covers.
+# 3. publish: after a maintainer approves the npm-publish environment, the same tarball check
+#    against that output, a check that the package already exists on npm, then
+#    `npm stage publish <tarball> --tag beta --provenance` over OIDC (trusted publishing, no
+#    token). Nothing is installable until a maintainer approves the stage on npmjs.com.
+# 4. github-release: a draft GitHub Release with the prerelease flag, its notes from CHANGELOG.md.
+# A manual dispatch is always a dry run: verify-tag on the `tag` input (or, with `none`, the
+# dispatched branch without the tag checks), pack, then `npm stage publish --dry-run` of the
+# tarball. It uses no environment, no OIDC token and no secret. GitHub dispatches only a workflow
+# whose file is on the default branch.
+name: Release
+
+on:
+  push:
+    tags: ["v[0-9]*.[0-9]*.[0-9]*", "!v*-*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: An existing vX.Y.Z tag to rehearse, or none to pack the dispatched branch without the tag checks; nothing is published
+        type: string
+        default: none
+
+permissions: {}
+
+concurrency:
+  group: >-
+    ${{ github.event_name == 'push' && format('release-{0}', github.ref_name)
+    || format('release-dry-run-{0}', github.run_id) }}
+  cancel-in-progress: false
+
+jobs:
+  verify-tag:
+    name: Verify the tag
+    # Never on a fork: a fork has no trusted publisher, and its tags are not the maintainer's.
+    if: github.repository == 'aelmanaa/hardhat-gas-profile'
+    runs-on: ubuntu-26.04
+    timeout-minutes: 10
+    permissions:
+      contents: read # checks out the scripts, the keys and the history
+      actions: read # reads the ci.yml runs of the tagged commit
+    outputs:
+      tag: ${{ steps.trigger.outputs.tag }}
+      dry-run: ${{ steps.trigger.outputs.dry-run }}
+      commit: ${{ steps.verify.outputs.commit }}
+      version: ${{ steps.verify.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The whole history: the tagged commit must be an ancestor of origin/main.
+          fetch-depth: 0
+          persist-credentials: false
+      # Node 24 strips the scripts' types; they import only node: modules, so nothing is installed.
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          package-manager-cache: false
+      # The input is matched as one whole string, so a value with a newline cannot add an output.
+      - name: Read the trigger
+        id: trigger
+        env:
+          EVENT: ${{ github.event_name }}
+          REF_NAME: ${{ github.ref_name }}
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          if [ "$EVENT" = push ]; then
+            tag="$REF_NAME"
+            dry_run=false
+          else
+            tag="$INPUT_TAG"
+            dry_run=true
+          fi
+          if [[ ! "$tag" =~ ^(v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)|none)$ ]]; then
+            echo "::error::the tag must be vX.Y.Z, or none on a manual dispatch"
+            exit 1
+          fi
+          if [ "$EVENT" = push ] && [ "$tag" = none ]; then
+            echo "::error::a tag push must name a vX.Y.Z tag"
+            exit 1
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "dry-run=$dry_run" >> "$GITHUB_OUTPUT"
+      - name: Verify the tag signature, version and commit
+        id: verify
+        env:
+          TAG: ${{ steps.trigger.outputs.tag }}
+          HEAD_SHA: ${{ github.sha }}
+        run: |
+          if [ "$TAG" = none ]; then
+            version="$(node -p 'require("./package.json").version')"
+            echo "commit=$HEAD_SHA" >> "$GITHUB_OUTPUT"
+            echo "version=$version" >> "$GITHUB_OUTPUT"
+            echo "Dry run without a tag: the signature, version and branch checks did not run. Packing \`$HEAD_SHA\` at version $version." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          # Fetch the tag object itself and main, so neither depends on how the checkout fetched them.
+          git fetch --force --no-tags origin "+refs/tags/$TAG:refs/tags/$TAG" "+refs/heads/main:refs/remotes/origin/main"
+          set -o pipefail
+          # --output appends commit= and version= once the tag passes.
+          node scripts/verify-release-tag.ts "$TAG" --output "$GITHUB_OUTPUT" | tee -a "$GITHUB_STEP_SUMMARY"
+      # The tag goes on the merge commit of the Version Packages pull request, after CI on main
+      # passed for it. The check reads the runs once; it does not wait for a run in progress.
+      - name: Require a passing ci.yml run on the tagged commit
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          COMMIT: ${{ steps.verify.outputs.commit }}
+        run: |
+          passed="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?head_sha=$COMMIT&status=success&event=push&branch=main" --jq '.total_count')"
+          if [ "$passed" = 0 ]; then
+            echo "::error::commit $COMMIT has no passing ci.yml run. Wait for CI on main to pass, then re-run this workflow."
+            exit 1
+          fi
+          echo "ci.yml passed on \`$COMMIT\` ($passed run(s))." >> "$GITHUB_STEP_SUMMARY"
+
+  pack:
+    name: Build, check and pack
+    needs: verify-tag
+    runs-on: ubuntu-26.04
+    timeout-minutes: 20
+    permissions:
+      contents: read # checks out the tagged commit
+    outputs:
+      sums: ${{ steps.pack.outputs.sums }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.verify-tag.outputs.commit }}
+          persist-credentials: false
+      # No dependency cache: what goes to npm is built only from the lockfile and the registry.
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        with:
+          cache: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          package-manager-cache: false
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile --ignore-scripts
+      # Builds, then publint --strict and are-the-types-wrong.
+      - name: Build and check the package
+        run: pnpm run pkg:check
+      # npm writes no gitHead into a manifest published from a tarball, and the promote workflow
+      # ties the published version to the tag through it. pnpm pack keeps the field.
+      - name: Pack the package with gitHead set to the tagged commit
+        id: pack
+        env:
+          COMMIT: ${{ needs.verify-tag.outputs.commit }}
+          VERSION: ${{ needs.verify-tag.outputs.version }}
+        run: |
+          out="$RUNNER_TEMP/tarballs"
+          sums="$RUNNER_TEMP/SHA256SUMS"
+          mkdir -p "$out"
+          npm pkg set "gitHead=$COMMIT"
+          tarball="$(pnpm pack --json --pack-destination "$out" | node -p 'JSON.parse(require("fs").readFileSync(0, "utf8")).filename')"
+          # The same checks as pkg:check, on the tarball that is published.
+          pnpm exec publint run --strict "$tarball"
+          pnpm exec attw "$tarball" --profile esm-only
+          (cd "$out" && sha256sum "$(basename "$tarball")") > "$sums"
+          node scripts/check-tarballs.ts --dir "$out" --sums "$sums" --version "$VERSION" --commit "$COMMIT"
+          echo "sums=$(base64 -w0 < "$sums")" >> "$GITHUB_OUTPUT"
+      - name: Tarball sum and file list
+        run: |
+          out="$RUNNER_TEMP/tarballs"
+          {
+            echo "## Tarball"
+            echo
+            echo "| Tarball | SHA-256 |"
+            echo "| --- | --- |"
+            while read -r sum file; do echo "| \`$file\` | \`$sum\` |"; done < "$RUNNER_TEMP/SHA256SUMS"
+            echo
+            while read -r _ file; do
+              echo "<details><summary>$file: $(tar -tzf "$out/$file" | wc -l) files</summary>"
+              echo
+              echo '```text'
+              tar -tzf "$out/$file" | sort
+              echo '```'
+              echo
+              echo "</details>"
+              echo
+            done < "$RUNNER_TEMP/SHA256SUMS"
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Release notes from the changelog
+        env:
+          VERSION: ${{ needs.verify-tag.outputs.version }}
+          DRY_RUN: ${{ needs.verify-tag.outputs.dry-run }}
+        run: |
+          notes="$RUNNER_TEMP/release-notes/notes.md"
+          mkdir -p "$(dirname "$notes")"
+          if [ -f CHANGELOG.md ]; then
+            awk -v heading="## $VERSION" '$0 == heading { found = 1; next } found && /^## / { exit } found { print }' \
+              CHANGELOG.md > "$notes"
+          fi
+          if [ ! -s "$notes" ]; then
+            if [ "$DRY_RUN" = true ]; then
+              echo "::warning::CHANGELOG.md has no '## $VERSION' entry; a release run would fail here. A release tag goes on the merge commit of the Version Packages pull request, which writes the entry."
+              echo "No changelog entry for $VERSION." > "$notes"
+            else
+              echo "::error::CHANGELOG.md has no '## $VERSION' entry at the tagged commit. Tag the merge commit of the Version Packages pull request, which writes the entry."
+              exit 1
+            fi
+          fi
+          { echo "## Release notes"; echo; cat "$notes"; } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: tarballs
+          path: ${{ runner.temp }}/tarballs/
+          if-no-files-found: error
+          retention-days: 30
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-notes
+          path: ${{ runner.temp }}/release-notes/
+          if-no-files-found: error
+          retention-days: 30
+
+  publish:
+    name: Stage to npm under beta
+    needs: [verify-tag, pack]
+    if: github.event_name == 'push' && needs.verify-tag.outputs.dry-run == 'false'
+    runs-on: ubuntu-26.04
+    timeout-minutes: 15
+    # A maintainer approves this environment. It admits only v* tags, and the package's trusted
+    # publisher on npm names it.
+    environment: npm-publish
+    permissions:
+      contents: read # checks out the tarball check at the tagged commit
+      id-token: write # the OIDC token for trusted publishing and for the provenance attestation
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.verify-tag.outputs.commit }}
+          persist-credentials: false
+          sparse-checkout: |
+            scripts/check-tarballs.ts
+            scripts/release-package.ts
+          sparse-checkout-cone-mode: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: tarballs
+          path: ${{ runner.temp }}/tarballs
+      # No registry-url: setup-node would write an .npmrc that expects a token.
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          package-manager-cache: false
+      # The sum comes from the pack job's output, not from the artifact.
+      - name: Check the tarball against the pack job's sum, version and commit
+        env:
+          SUMS: ${{ needs.pack.outputs.sums }}
+          VERSION: ${{ needs.verify-tag.outputs.version }}
+          COMMIT: ${{ needs.verify-tag.outputs.commit }}
+        run: |
+          printf '%s' "$SUMS" | base64 -d > "$RUNNER_TEMP/SHA256SUMS"
+          node scripts/check-tarballs.ts --dir "$RUNNER_TEMP/tarballs" --sums "$RUNNER_TEMP/SHA256SUMS" \
+            --version "$VERSION" --commit "$COMMIT"
+      # Node 24 ships npm 11.19. Staged publishing needs 11.15.0 and OIDC dist-tags 11.21.0, so the
+      # release and promote jobs install the same pinned npm, with no install scripts, and refuse
+      # one below 11.21.0. Raise the pin on purpose, in every place it appears (release.yml,
+      # promote.yml).
+      - name: Install the pinned npm
+        run: | # zizmor: ignore[adhoc-packages] npm itself, pinned to an exact version
+          npm install --global --ignore-scripts npm@12.2.0
+          npm --version
+          node -e 'const [a, b] = process.argv[1].split(".").map(Number); if (a < 11 || (a === 11 && b < 21)) { console.error("npm " + process.argv[1] + " is below 11.21.0"); process.exit(1); }' "$(npm --version)"
+      # npm sets up a trusted publisher only for a package that exists, so a new name has none and
+      # its stage over OIDC would fail. This stops the run before the stage and points at the
+      # first-publish steps. It reads the registry only; no token.
+      - name: Check that the package exists on npm
+        run: |
+          if ! npm view hardhat-gas-profile name > /dev/null 2>&1; then
+            echo "::error::hardhat-gas-profile is not on npm yet, so it has no trusted publisher. The owner publishes the name once by hand and sets up its trusted publishers first (docs/contributor/releasing.md, First publish)."
+            exit 1
+          fi
+      - name: Stage the tarball under beta with provenance
+        run: |
+          cd "$RUNNER_TEMP/tarballs"
+          echo "## Staged under \`beta\`" >> "$GITHUB_STEP_SUMMARY"
+          while read -r _ file; do
+            if ! npm stage publish "./$file" --tag beta --access public --provenance < /dev/null; then
+              echo "::error::npm refused to stage $file. Check the trusted publisher on npmjs.com: repository aelmanaa/hardhat-gas-profile, workflow release.yml, environment npm-publish, staged publishing allowed. A configuration that completed no publish expires 48 hours after its creation (docs/contributor/releasing.md)."
+              exit 1
+            fi
+            echo "- \`$file\`" >> "$GITHUB_STEP_SUMMARY"
+          done < "$RUNNER_TEMP/SHA256SUMS"
+          echo >> "$GITHUB_STEP_SUMMARY"
+          echo "Approve the stage on npmjs.com; until then nothing is installable. Then run promote.yml with target verify (docs/contributor/releasing.md, Verify and promote)." >> "$GITHUB_STEP_SUMMARY"
+
+  publish-dry-run:
+    name: Stage to npm (dry run)
+    needs: [verify-tag, pack]
+    if: github.event_name == 'workflow_dispatch' && needs.verify-tag.outputs.dry-run == 'true'
+    runs-on: ubuntu-26.04
+    timeout-minutes: 10
+    permissions:
+      contents: read # checks out the tarball check
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.verify-tag.outputs.commit }}
+          persist-credentials: false
+          sparse-checkout: |
+            scripts/check-tarballs.ts
+            scripts/release-package.ts
+          sparse-checkout-cone-mode: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: tarballs
+          path: ${{ runner.temp }}/tarballs
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          package-manager-cache: false
+      - name: Check the tarball against the pack job's sum, version and commit
+        env:
+          SUMS: ${{ needs.pack.outputs.sums }}
+          VERSION: ${{ needs.verify-tag.outputs.version }}
+          COMMIT: ${{ needs.verify-tag.outputs.commit }}
+        run: |
+          printf '%s' "$SUMS" | base64 -d > "$RUNNER_TEMP/SHA256SUMS"
+          node scripts/check-tarballs.ts --dir "$RUNNER_TEMP/tarballs" --sums "$RUNNER_TEMP/SHA256SUMS" \
+            --version "$VERSION" --commit "$COMMIT"
+      # The same pinned npm as the publish job; see the comment there.
+      - name: Install the pinned npm
+        run: | # zizmor: ignore[adhoc-packages] npm itself, pinned to an exact version
+          npm install --global --ignore-scripts npm@12.2.0
+          npm --version
+          node -e 'const [a, b] = process.argv[1].split(".").map(Number); if (a < 11 || (a === 11 && b < 21)) { console.error("npm " + process.argv[1] + " is below 11.21.0"); process.exit(1); }' "$(npm --version)"
+      # The same check as the publish job's, as a warning: a dry run stages nothing.
+      - name: Check that the package exists on npm
+        run: |
+          if ! npm view hardhat-gas-profile name > /dev/null 2>&1; then
+            echo "::warning::hardhat-gas-profile is not on npm yet; a release run stops here (docs/contributor/releasing.md, First publish)."
+          fi
+      - name: npm stage publish --dry-run, and the commands a release would run
+        env:
+          TAG: ${{ needs.verify-tag.outputs.tag }}
+        run: |
+          cd "$RUNNER_TEMP/tarballs"
+          {
+            echo "## Dry run"
+            echo
+            echo "In a release run, after a maintainer approves the npm-publish environment, the workflow runs:"
+            echo
+            echo '```sh'
+            while read -r _ file; do
+              echo "npm stage publish ./$file --tag beta --access public --provenance"
+            done < "$RUNNER_TEMP/SHA256SUMS"
+            echo "gh release create $TAG --verify-tag --draft --prerelease --title $TAG --notes-file notes.md"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          while read -r _ file; do
+            npm stage publish --dry-run "./$file" --tag beta --access public < /dev/null
+          done < "$RUNNER_TEMP/SHA256SUMS"
+
+  github-release:
+    name: Draft GitHub Release
+    needs: [verify-tag, publish]
+    runs-on: ubuntu-26.04
+    timeout-minutes: 5
+    permissions:
+      contents: write # creates the draft release
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-notes
+          path: ${{ runner.temp }}/release-notes
+      # A re-run of this job after a failure finds the release and creates no second one.
+      - name: Create the draft release unless it exists
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.verify-tag.outputs.tag }}
+        run: |
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            echo "Release $TAG exists; nothing to do." | tee -a "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --verify-tag --draft --prerelease \
+            --title "$TAG" --notes-file "$RUNNER_TEMP/release-notes/notes.md"
+          echo "Created the draft prerelease $TAG." >> "$GITHUB_STEP_SUMMARY"

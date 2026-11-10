@@ -1,0 +1,203 @@
+# Verifies a staged and approved version from npm, and moves `latest` to it. Dispatched by a
+# maintainer from main; docs/contributor/releasing.md, Verify and promote, has the steps. It never
+# publishes a tarball: the only npm write is `npm dist-tag add`, so `latest` gets the same tarball
+# and provenance as `beta`.
+# - verify, for both targets: the version input is a plain X.Y.Z, tag vX.Y.Z passes
+#   scripts/verify-release-tag.ts again (signed by a key in .github/release-keys/, the package
+#   version, its commit on main), then scripts/check-registry-release.ts reads npm: the version is
+#   published, `beta` points at it, `latest` is not above it (a deprecated name placeholder on
+#   `latest` is below any version), its gitHead is the tagged commit, and `npm audit signatures`
+#   verifies its provenance attestation from a scratch install.
+# - target verify: publishes the draft GitHub Release with the prerelease flag on.
+# - target latest: after a maintainer approves the npm-latest environment, the dist-tag checks
+#   again, then `npm dist-tag add hardhat-gas-profile@<version> latest` over OIDC; then the GitHub
+#   Release becomes the latest release. Both jobs share the concurrency group promote-latest with
+#   every version, so latest moves one version at a time.
+name: Promote
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: The exact version, without the v (for example 0.1.0)
+        type: string
+        required: true
+      target:
+        description: verify checks the version from npm; latest also moves the latest dist-tag to it
+        type: choice
+        options: [verify, latest]
+        default: verify
+
+permissions: {}
+
+concurrency:
+  group: promote-${{ inputs.version }}
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    name: Verify the version from npm
+    # Never on a fork, and only from main: the npm-latest environment admits main alone.
+    if: github.repository == 'aelmanaa/hardhat-gas-profile' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-26.04
+    timeout-minutes: 15
+    permissions:
+      contents: read # checks out the scripts and fetches the tag
+    outputs:
+      commit: ${{ steps.tag.outputs.commit }}
+    steps:
+      # Matched as one whole string ([[ =~ ]], not grep, which matches line by line), so nothing
+      # later sees an unchecked value.
+      - name: Check the input
+        env:
+          VERSION: ${{ inputs.version }}
+          TARGET: ${{ inputs.target }}
+        run: |
+          if [[ ! "$VERSION" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+            echo "::error::version must be an exact X.Y.Z without the v and without a prerelease part, for example 0.1.0"
+            exit 1
+          fi
+          echo "## Promote $VERSION, target $TARGET" >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          package-manager-cache: false
+      # The same pinned npm as the latest job, so this check reads the registry output the move
+      # will see. Raise the pin in release.yml and here together.
+      - name: Install the pinned npm
+        run: | # zizmor: ignore[adhoc-packages] npm itself, pinned to an exact version
+          npm install --global --ignore-scripts npm@12.2.0
+          npm --version
+      # release.yml checked the tag before staging; this checks it again, with the keys and the
+      # script of main, before anything moves. --output appends commit= and version=.
+      - name: Verify the tag signature, version and commit
+        id: tag
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          git fetch --force --no-tags origin "+refs/tags/v$VERSION:refs/tags/v$VERSION" "+refs/heads/main:refs/remotes/origin/main"
+          set -o pipefail
+          node scripts/verify-release-tag.ts "v$VERSION" --output "$GITHUB_OUTPUT" | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Registry release checks
+        env:
+          VERSION: ${{ inputs.version }}
+          COMMIT: ${{ steps.tag.outputs.commit }}
+        run: |
+          set -o pipefail
+          {
+            echo '```text'
+            node scripts/check-registry-release.ts --version "$VERSION" --commit "$COMMIT" 2>&1 | tee /dev/stderr
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  release-beta:
+    name: Publish the GitHub Release as a prerelease
+    needs: verify
+    if: inputs.target == 'verify'
+    runs-on: ubuntu-26.04
+    timeout-minutes: 5
+    permissions:
+      contents: write # edits the release
+    steps:
+      - name: Publish the draft with the prerelease flag
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: v${{ inputs.version }}
+        run: |
+          draft="$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft)"
+          if [ "$draft" != true ]; then
+            echo "Release $TAG is already published; left as it is." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=false --prerelease --latest=false
+          echo "Published release $TAG as a prerelease." >> "$GITHUB_STEP_SUMMARY"
+
+  latest:
+    name: Move latest on npm
+    needs: verify
+    if: inputs.target == 'latest'
+    runs-on: ubuntu-26.04
+    timeout-minutes: 10
+    # One group for every version, shared with release-latest: two promotions never read and move
+    # latest at once.
+    concurrency:
+      group: promote-latest
+      cancel-in-progress: false
+    # A maintainer approves this environment. It admits only main, and the dist-tag trusted
+    # publisher on npm names it.
+    environment: npm-latest
+    permissions:
+      contents: read # checks out the registry check
+      id-token: write # the OIDC token for npm dist-tag add
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            scripts/check-registry-release.ts
+            scripts/release-package.ts
+          sparse-checkout-cone-mode: false
+      # No registry-url: setup-node would write an .npmrc that expects a token.
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          package-manager-cache: false
+      # Node 24 ships npm 11.19, and OIDC dist-tags need 11.21.0. The same pinned npm as
+      # release.yml, with no install scripts; raise the pin there and here together.
+      - name: Install the pinned npm
+        run: | # zizmor: ignore[adhoc-packages] npm itself, pinned to an exact version
+          npm install --global --ignore-scripts npm@12.2.0
+          npm --version
+          node -e 'const [a, b] = process.argv[1].split(".").map(Number); if (a < 11 || (a === 11 && b < 21)) { console.error("npm " + process.argv[1] + " is below 11.21.0"); process.exit(1); }' "$(npm --version)"
+      # The verify job may have run hours before the approval, so the dist-tags are read again
+      # just before the move. A package whose latest already is the version is left alone, so a
+      # re-run after a move by hand only edits the release.
+      - name: Check the dist-tags again
+        id: check
+        env:
+          VERSION: ${{ inputs.version }}
+          COMMIT: ${{ needs.verify.outputs.commit }}
+        run: |
+          node scripts/check-registry-release.ts --version "$VERSION" --commit "$COMMIT" --tags-only \
+            --output "$GITHUB_OUTPUT"
+      - name: npm dist-tag add
+        if: steps.check.outputs.already-latest == 'false'
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          if ! npm dist-tag add "hardhat-gas-profile@$VERSION" latest < /dev/null; then
+            echo "::error::npm refused to move latest. Check the trusted publisher for promote.yml (environment npm-latest, dist-tag management allowed), or run npm dist-tag add hardhat-gas-profile@$VERSION latest by hand with 2FA and re-run this workflow."
+            exit 1
+          fi
+          echo "- hardhat-gas-profile@$VERSION is latest" >> "$GITHUB_STEP_SUMMARY"
+
+  release-latest:
+    name: Mark the GitHub Release as latest
+    needs: latest
+    runs-on: ubuntu-26.04
+    timeout-minutes: 5
+    # The group of the latest job: the release becomes the latest only while npm's latest still is
+    # this version.
+    concurrency:
+      group: promote-latest
+      cancel-in-progress: false
+    permissions:
+      contents: write # edits the release
+    steps:
+      - name: Publish the release as the latest, without the prerelease flag
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: v${{ inputs.version }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          current="$(curl --fail --silent --show-error https://registry.npmjs.org/-/package/hardhat-gas-profile/dist-tags | jq -r '.latest // ""')"
+          if [ "$current" != "$VERSION" ]; then
+            echo "::error::hardhat-gas-profile has latest at ${current:-nothing}, not $VERSION; another promotion moved it, so release $TAG is left as it is"
+            exit 1
+          fi
+          gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=false --prerelease=false --latest
+          echo "Release $TAG is the latest release." >> "$GITHUB_STEP_SUMMARY"
