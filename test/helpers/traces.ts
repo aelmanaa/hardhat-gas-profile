@@ -1,5 +1,4 @@
 import type { CallTrace, TestResult } from "@nomicfoundation/edr";
-
 import { CallKind, TestStatus } from "@nomicfoundation/edr";
 
 const CONTRACT_ADDRESS = "0x5fbdb2315678afecb367f032d93f642f64180aa3";
@@ -104,9 +103,7 @@ export function depositTestResult(): TestResult {
         contract: "Vault",
         fn: "deposit",
         gasUsed: 37_071,
-        children: [
-          createCall({ contract: "Token", fn: "transfer", gasUsed: 6_634 }),
-        ],
+        children: [createCall({ contract: "Token", fn: "transfer", gasUsed: 6_634 })],
       }),
       createCall({
         contract: "Vault",

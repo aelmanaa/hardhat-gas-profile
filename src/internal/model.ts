@@ -1,5 +1,4 @@
 import type { CallTrace, LogTrace, TestResult } from "@nomicfoundation/edr";
-
 import { CallKind, LogKind, TestStatus } from "@nomicfoundation/edr";
 import { bytesToHexString } from "@nomicfoundation/hardhat-utils/hex";
 
@@ -89,10 +88,7 @@ export interface UnprofiledTest extends TestInfo {
   reason: string;
 }
 
-export function profileTest(
-  suite: string,
-  testResult: TestResult,
-): TestProfile | UnprofiledTest {
+export function profileTest(suite: string, testResult: TestResult): TestProfile | UnprofiledTest {
   const testName = testResult.name.replace(/\(.*$/, "");
   const info: TestInfo = {
     suite,
@@ -118,10 +114,7 @@ export function profileTest(
   if (rootTrace === undefined) {
     return { ...info, reason: "no trace was recorded" };
   }
-  if (
-    !(rootTrace.inputs instanceof Uint8Array) &&
-    rootTrace.inputs.name === "setUp"
-  ) {
+  if (!(rootTrace.inputs instanceof Uint8Array) && rootTrace.inputs.name === "setUp") {
     return { ...info, reason: "only setUp ran" };
   }
 
@@ -158,9 +151,7 @@ export function profileTest(
   };
 }
 
-export function isProfiled(
-  test: TestProfile | UnprofiledTest,
-): test is TestProfile {
+export function isProfiled(test: TestProfile | UnprofiledTest): test is TestProfile {
   return "root" in test;
 }
 
@@ -188,8 +179,7 @@ function frameName(trace: CallTrace): string {
     return `new ${trace.contract ?? "<unknown>"}`;
   }
 
-  const target =
-    trace.contract ?? `${trace.address.slice(0, 6)}…${trace.address.slice(-4)}`;
+  const target = trace.contract ?? `${trace.address.slice(0, 6)}…${trace.address.slice(-4)}`;
   if (!(trace.inputs instanceof Uint8Array)) {
     return `${target}.${trace.inputs.name}`;
   }
@@ -205,8 +195,7 @@ function frameName(trace: CallTrace): string {
 function frameRole(trace: CallTrace): FrameRole {
   if (
     trace.kind !== CallKind.Create &&
-    (trace.contract === PRECOMPILES_LABEL ||
-      PRECOMPILE_ADDRESSES.has(BigInt(trace.address)))
+    (trace.contract === PRECOMPILES_LABEL || PRECOMPILE_ADDRESSES.has(BigInt(trace.address)))
   ) {
     return "precompile";
   }
@@ -269,10 +258,7 @@ function buildFrame(
  * line. For example, `a;b` is written as `a%3bb`.
  */
 export function escapeFoldedFrame(name: string): string {
-  return name.replace(
-    /[%;\r\n\t]/g,
-    (c) => `%${c.charCodeAt(0).toString(16).padStart(2, "0")}`,
-  );
+  return name.replace(/[%;\r\n\t]/g, (c) => `%${c.charCodeAt(0).toString(16).padStart(2, "0")}`);
 }
 
 /** One line per call, in execution order, weighted by self gas. */
@@ -335,11 +321,7 @@ function groupTinyFrames(frame: Frame, threshold: number): void {
   frame.children.forEach((child) => groupTinyFrames(child, threshold));
 }
 
-export function walk(
-  frame: Frame,
-  visit: (frame: Frame, depth: number) => void,
-  depth = 0,
-): void {
+export function walk(frame: Frame, visit: (frame: Frame, depth: number) => void, depth = 0): void {
   visit(frame, depth);
   frame.children.forEach((child) => walk(child, visit, depth + 1));
 }

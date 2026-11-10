@@ -1,17 +1,8 @@
-import type {
-  SuiteResult,
-  TestResult,
-  ValueSnapshotGroup,
-} from "@nomicfoundation/edr";
-
+import type { SuiteResult, TestResult, ValueSnapshotGroup } from "@nomicfoundation/edr";
 import { TestStatus } from "@nomicfoundation/edr";
-
 import { parseName } from "hardhat/utils/contract-names";
 
-export function createStandardTestResult(
-  name: string,
-  consumedGas: bigint,
-): TestResult {
+export function createStandardTestResult(name: string, consumedGas: bigint): TestResult {
   return {
     name,
     status: TestStatus.Success,
@@ -52,11 +43,7 @@ export function createFuzzTestResult(
   };
 }
 
-export function createInvariantTestResult(
-  name: string,
-  runs: bigint,
-  calls: bigint,
-): TestResult {
+export function createInvariantTestResult(name: string, runs: bigint, calls: bigint): TestResult {
   return {
     name,
     status: TestStatus.Success,

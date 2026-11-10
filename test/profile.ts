@@ -1,28 +1,14 @@
-import type { TestProfile } from "../src/internal/model.js";
-
 import assert from "node:assert/strict";
 import path from "node:path";
 import { describe, it } from "node:test";
 
-import { createTmpDir } from "./helpers/tmp-dir.js";
-import {
-  exists,
-  readdir,
-  readUtf8File,
-  writeUtf8File,
-} from "@nomicfoundation/hardhat-utils/fs";
+import { exists, readdir, readUtf8File, writeUtf8File } from "@nomicfoundation/hardhat-utils/fs";
 
-import {
-  collectGasProfiles,
-  foldedFileNames,
-  writeGasProfile,
-} from "../src/internal/profile.js";
-import {
-  createCall,
-  createUnitTestResult,
-  depositTestResult,
-} from "./helpers/traces.js";
+import type { TestProfile } from "../src/internal/model.js";
+import { collectGasProfiles, foldedFileNames, writeGasProfile } from "../src/internal/profile.js";
 import { createSuiteResult } from "./helpers/suite-result.js";
+import { createTmpDir } from "./helpers/tmp-dir.js";
+import { createCall, createUnitTestResult, depositTestResult } from "./helpers/traces.js";
 
 function simpleTest(name: string) {
   return createUnitTestResult(`${name}()`, 100, [
@@ -31,24 +17,21 @@ function simpleTest(name: string) {
 }
 
 function profilesOf(suite: string, names: string[]): TestProfile[] {
-  return collectGasProfiles([createSuiteResult(suite, names.map(simpleTest))])
-    .profiles;
+  return collectGasProfiles([createSuiteResult(suite, names.map(simpleTest))]).profiles;
 }
 
 describe("gas-profile/index", () => {
   const tmp = createTmpDir("gas-profile-index");
 
   it("names folded files after the contract and test", async () => {
-    assert.deepEqual(await foldedFileNames(profilesOf("T", ["test_a"])), [
-      "T.test_a.folded",
-    ]);
+    assert.deepEqual(await foldedFileNames(profilesOf("T", ["test_a"])), ["T.test_a.folded"]);
   });
 
   it("keeps names unique on case-insensitive file systems", async () => {
-    assert.deepEqual(
-      await foldedFileNames(profilesOf("T", ["testCase", "testcase"])),
-      ["T.testCase.folded", "T.testcase-2.folded"],
-    );
+    assert.deepEqual(await foldedFileNames(profilesOf("T", ["testCase", "testcase"])), [
+      "T.testCase.folded",
+      "T.testcase-2.folded",
+    ]);
   });
 
   it("assigns case suffixes by name, not by gas", async () => {
@@ -62,17 +45,12 @@ describe("gas-profile/index", () => {
     ]);
     assert.equal(profiles[0].testName, "testcase");
 
-    assert.deepEqual(await foldedFileNames(profiles), [
-      "T.testcase-2.folded",
-      "T.testCase.folded",
-    ]);
+    assert.deepEqual(await foldedFileNames(profiles), ["T.testcase-2.folded", "T.testCase.folded"]);
   });
 
   it("shortens long names and adds a hash", async () => {
     const long = `test_${"a".repeat(300)}`;
-    const [name, other] = await foldedFileNames(
-      profilesOf("T", [long, `${long}b`]),
-    );
+    const [name, other] = await foldedFileNames(profilesOf("T", [long, `${long}b`]));
 
     assert.ok(
       Buffer.byteLength(name) <= 207,
@@ -92,17 +70,12 @@ describe("gas-profile/index", () => {
       false,
     );
 
-    assert.ok(
-      await exists(path.join(outputDir, "index.html")),
-      "expected the HTML report",
-    );
+    assert.ok(await exists(path.join(outputDir, "index.html")), "expected the HTML report");
     assert.deepEqual(await readdir(path.join(outputDir, "folded")), [
       "GasTest.test_deposit.folded",
     ]);
     assert.equal(
-      await readUtf8File(
-        path.join(outputDir, "folded", "GasTest.test_deposit.folded"),
-      ),
+      await readUtf8File(path.join(outputDir, "folded", "GasTest.test_deposit.folded")),
       "GasTest.test_deposit 6322\nGasTest.test_deposit;Vault.deposit 30437\nGasTest.test_deposit;Vault.deposit;Token.transfer 6634\nGasTest.test_deposit;Vault.shares 801\n",
     );
     assert.ok(

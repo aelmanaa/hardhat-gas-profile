@@ -22,8 +22,8 @@ npm install --save-dev hardhat-gas-profile
 
 ```ts
 // hardhat.config.ts
-import { defineConfig } from "hardhat/config";
 import hardhatGasProfile from "hardhat-gas-profile";
+import { defineConfig } from "hardhat/config";
 
 export default defineConfig({
   plugins: [hardhatGasProfile],

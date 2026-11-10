@@ -1,16 +1,15 @@
-import type { HardhatRuntimeEnvironment } from "hardhat/types/hre";
-
 import assert from "node:assert/strict";
 import { readdir, readFile, writeFile, access } from "node:fs/promises";
 import path from "node:path";
 import { after, before, describe, it, mock } from "node:test";
 
 import { createHardhatRuntimeEnvironment } from "hardhat/hre";
+import type { HardhatRuntimeEnvironment } from "hardhat/types/hre";
 
-import config from "./fixture-projects/basic/hardhat.config.js";
-import { createTmpDir } from "./helpers/tmp-dir.js";
 import { isolationWarning } from "../src/internal/profile.js";
 import { ISOLATION_NOTE } from "../src/internal/summary.js";
+import config from "./fixture-projects/basic/hardhat.config.js";
+import { createTmpDir } from "./helpers/tmp-dir.js";
 
 const FIXTURE = path.join(import.meta.dirname, "fixture-projects", "basic");
 
@@ -73,9 +72,7 @@ describe("hardhat-gas-profile", () => {
     const hre = await hreWith();
 
     const { result, logs } = await capture(() =>
-      hre.tasks
-        .getTask(["test", "solidity"])
-        .run({ noCompile: true, gasProfile: true }),
+      hre.tasks.getTask(["test", "solidity"]).run({ noCompile: true, gasProfile: true }),
     );
 
     // A failing test is profiled, and the result is still a failure.
@@ -119,39 +116,28 @@ describe("hardhat-gas-profile", () => {
     const hre = await hreWith();
 
     await capture(() =>
-      hre.tasks
-        .getTask("test")
-        .run({ noCompile: true, gasProfile: true, testFiles: [] }),
+      hre.tasks.getTask("test").run({ noCompile: true, gasProfile: true, testFiles: [] }),
     );
 
-    assert.equal(
-      (await readdir(path.join(tmp.path, "gas-profile", "folded"))).length,
-      2,
-    );
+    assert.equal((await readdir(path.join(tmp.path, "gas-profile", "folded"))).length, 2);
   });
 
   it("notes isolation when the isolate setting is on", async () => {
     const hre = await hreWith({ isolate: true });
 
     const { logs, warnings } = await capture(() =>
-      hre.tasks
-        .getTask(["test", "solidity"])
-        .run({ noCompile: true, gasProfile: true }),
+      hre.tasks.getTask(["test", "solidity"]).run({ noCompile: true, gasProfile: true }),
     );
 
     assert.ok(logs.includes(ISOLATION_NOTE));
-    assert.ok(
-      warnings.some((w) => w.includes(isolationWarning(["the isolate setting"]))),
-    );
+    assert.ok(warnings.some((w) => w.includes(isolationWarning(["the isolate setting"]))));
   });
 
   it("warns that --gas-stats turns isolation on", async () => {
     const hre = await hreWith({}, { gasStats: true });
 
     const { warnings } = await capture(() =>
-      hre.tasks
-        .getTask(["test", "solidity"])
-        .run({ noCompile: true, gasProfile: true }),
+      hre.tasks.getTask(["test", "solidity"]).run({ noCompile: true, gasProfile: true }),
     );
 
     assert.ok(warnings.some((w) => w.includes(isolationWarning(["--gas-stats"]))));
@@ -161,9 +147,7 @@ describe("hardhat-gas-profile", () => {
     const hre = await hreWith({}, { coverage: true });
 
     await assert.rejects(
-      hre.tasks
-        .getTask(["test", "solidity"])
-        .run({ noCompile: true, gasProfile: true }),
+      hre.tasks.getTask(["test", "solidity"]).run({ noCompile: true, gasProfile: true }),
       /can't be used with --coverage/,
     );
   });
@@ -178,9 +162,7 @@ describe("hardhat-gas-profile", () => {
     });
 
     assert.ok(
-      logs.includes(
-        "Gas profile: no Solidity tests ran, so the previous gas profile was removed.",
-      ),
+      logs.includes("Gas profile: no Solidity tests ran, so the previous gas profile was removed."),
     );
     assert.equal(await exists(path.join(tmp.path, "gas-profile")), false);
   });
@@ -192,9 +174,7 @@ describe("hardhat-gas-profile", () => {
     const hre = await hreWith({ cache: cacheFile });
 
     const { result, warnings } = await capture(() =>
-      hre.tasks
-        .getTask(["test", "solidity"])
-        .run({ noCompile: true, gasProfile: true }),
+      hre.tasks.getTask(["test", "solidity"]).run({ noCompile: true, gasProfile: true }),
     );
 
     assert.equal((result as { success: boolean }).success, false);

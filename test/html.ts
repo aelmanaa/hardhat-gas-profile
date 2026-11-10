@@ -3,12 +3,9 @@ import { describe, it } from "node:test";
 
 import { CallKind } from "@nomicfoundation/edr";
 
-import {
-  escapeHtml,
-  REPORT_ISOLATION_NOTE,
-  renderReport,
-} from "../src/internal/html.js";
+import { escapeHtml, REPORT_ISOLATION_NOTE, renderReport } from "../src/internal/html.js";
 import { collectGasProfiles } from "../src/internal/profile.js";
+import { createSuiteResult } from "./helpers/suite-result.js";
 import {
   createCall,
   createFuzzTestResult,
@@ -17,16 +14,12 @@ import {
   recursionTestResult,
   swapManyTimesTestResult,
 } from "./helpers/traces.js";
-import { createSuiteResult } from "./helpers/suite-result.js";
 
 const INFO = { hardhatVersion: "3.0.0", edrVersion: "0.1.0", isolation: false };
 
 function tests() {
   return collectGasProfiles([
-    createSuiteResult("GasTest", [
-      depositTestResult(),
-      createFuzzTestResult("testFuzz(uint256)"),
-    ]),
+    createSuiteResult("GasTest", [depositTestResult(), createFuzzTestResult("testFuzz(uint256)")]),
     createSuiteResult("DexTest", [swapManyTimesTestResult()]),
     createSuiteResult("Evil", [
       createUnitTestResult("test_x()", 2_000, [
@@ -57,10 +50,7 @@ describe("gas-profile/html", () => {
     const html = render();
 
     assert.ok(!/<script/i.test(html), "the report must not contain a script");
-    assertIncludes(
-      html,
-      "&lt;script&gt;alert(1)&lt;/script&gt;.f&#39;&quot;&amp;",
-    );
+    assertIncludes(html, "&lt;script&gt;alert(1)&lt;/script&gt;.f&#39;&quot;&amp;");
     assert.equal(
       escapeHtml(`<a href="x">'&'</a>`),
       "&lt;a href=&quot;x&quot;&gt;&#39;&amp;&#39;&lt;/a&gt;",
@@ -79,12 +69,9 @@ describe("gas-profile/html", () => {
   it("sorts the index by test gas and lists unprofiled tests", () => {
     const html = render();
 
-    const order = [
-      "DexTest#<wbr>",
-      "GasTest#<wbr>",
-      "Evil#<wbr>",
-      "GasTest#<wbr>testFuzz",
-    ].map((name) => html.indexOf(name));
+    const order = ["DexTest#<wbr>", "GasTest#<wbr>", "Evil#<wbr>", "GasTest#<wbr>testFuzz"].map(
+      (name) => html.indexOf(name),
+    );
     assert.deepEqual(
       [...order].sort((a, b) => a - b),
       order,
@@ -100,10 +87,7 @@ describe("gas-profile/html", () => {
     const html = renderReport(profiles, unprofiled, INFO);
 
     assertIncludes(html, '30,474<span class="range">17,934–80,634</span>');
-    assertIncludes(
-      html,
-      '<td data-label="Total gas">20,100</td><td data-label="Calls">201</td>',
-    );
+    assertIncludes(html, '<td data-label="Total gas">20,100</td><td data-label="Calls">201</td>');
   });
 
   it("states isolation in the header and the notes", () => {

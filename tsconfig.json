@@ -15,5 +15,10 @@
     "types": ["node"]
   },
   "include": ["src", "test"],
-  "exclude": ["dist", "node_modules", "test/fixture-projects/**/artifacts", "test/fixture-projects/**/cache"]
+  "exclude": [
+    "dist",
+    "node_modules",
+    "test/fixture-projects/**/artifacts",
+    "test/fixture-projects/**/cache"
+  ]
 }

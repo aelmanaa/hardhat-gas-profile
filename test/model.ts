@@ -1,19 +1,11 @@
-import type {
-  Frame,
-  TestProfile,
-} from "../src/internal/model.js";
-import type { CallTrace, TestResult } from "@nomicfoundation/edr";
-
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
+import type { CallTrace, TestResult } from "@nomicfoundation/edr";
 import { CallKind, TestStatus } from "@nomicfoundation/edr";
 
-import {
-  escapeFoldedFrame,
-  isProfiled,
-  profileTest,
-} from "../src/internal/model.js";
+import type { Frame, TestProfile } from "../src/internal/model.js";
+import { escapeFoldedFrame, isProfiled, profileTest } from "../src/internal/model.js";
 import {
   createCall,
   createCreate,
@@ -31,11 +23,7 @@ function profile(suite: string, testResult: TestResult): TestProfile {
 }
 
 /** Profiles a test whose root `T.test_x` makes the given calls. */
-function profileCalls(
-  rootGas: number,
-  calls: CallTrace[],
-  consumedGas = rootGas,
-): TestProfile {
+function profileCalls(rootGas: number, calls: CallTrace[], consumedGas = rootGas): TestProfile {
   return profile(
     "T",
     createUnitTestResult("test_x()", consumedGas, [
@@ -56,10 +44,7 @@ function child(frame: Frame, name: string): Frame {
 }
 
 function foldedSum(test: TestProfile): number {
-  return test.folded.reduce(
-    (sum, line) => sum + Number(line.slice(line.lastIndexOf(" ") + 1)),
-    0,
-  );
+  return test.folded.reduce((sum, line) => sum + Number(line.slice(line.lastIndexOf(" ") + 1)), 0);
 }
 
 describe("gas-profile/model", () => {
@@ -270,9 +255,7 @@ describe("gas-profile/model", () => {
   });
 
   it("clamps a negative self gas to 0 and reports it", () => {
-    const test = profileCalls(100, [
-      createCall({ contract: "A", fn: "f", gasUsed: 150 }),
-    ]);
+    const test = profileCalls(100, [createCall({ contract: "A", fn: "f", gasUsed: 150 })]);
 
     assert.equal(test.root.self, 0);
     assert.equal(test.root.clamped, true);
@@ -288,9 +271,7 @@ describe("gas-profile/model", () => {
 
   it("escapes the folded separators in frame names", () => {
     assert.equal(escapeFoldedFrame("a;b%c\nd"), "a%3bb%25c%0ad");
-    const test = profileCalls(10, [
-      createCall({ contract: "Odd;Name%", fn: "f", gasUsed: 5 }),
-    ]);
+    const test = profileCalls(10, [createCall({ contract: "Odd;Name%", fn: "f", gasUsed: 5 })]);
     assert.equal(test.folded[1], "T.test_x;Odd%3bName%25.f 5");
   });
 
@@ -311,16 +292,14 @@ describe("gas-profile/model", () => {
     ]);
     // A skipped test can have a partial trace; it's still not profiled.
     const partial = createCall({ contract: "T", fn: "test_b", gasUsed: 10 });
-    assert.deepEqual(
-      outcome(
-        createUnitTestResult("test_b()", 10, [partial], TestStatus.Skipped),
-      ),
-      ["skipped", "skipped"],
-    );
+    assert.deepEqual(outcome(createUnitTestResult("test_b()", 10, [partial], TestStatus.Skipped)), [
+      "skipped",
+      "skipped",
+    ]);
     const setUp = createCall({ contract: "T", fn: "setUp", gasUsed: 10 });
-    assert.deepEqual(
-      outcome(createUnitTestResult("test_c()", 0, [setUp], TestStatus.Failure)),
-      ["failed", "only setUp ran"],
-    );
+    assert.deepEqual(outcome(createUnitTestResult("test_c()", 0, [setUp], TestStatus.Failure)), [
+      "failed",
+      "only setUp ran",
+    ]);
   });
 });

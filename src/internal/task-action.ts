@@ -1,12 +1,11 @@
-import type { HardhatRuntimeEnvironment } from "hardhat/types/hre";
-import type { TaskArguments } from "hardhat/types/tasks";
-import type { SuiteResult } from "@nomicfoundation/edr";
-
 import path from "node:path";
 import { styleText } from "node:util";
 
+import type { SuiteResult } from "@nomicfoundation/edr";
 import { HardhatPluginError } from "@nomicfoundation/hardhat-errors";
 import { ensureError } from "@nomicfoundation/hardhat-utils/error";
+import type { HardhatRuntimeEnvironment } from "hardhat/types/hre";
+import type { TaskArguments } from "hardhat/types/tasks";
 
 import { PLUGIN_ID } from "./constants.js";
 import { isolationWarning, writeGasProfile } from "./profile.js";
@@ -28,15 +27,12 @@ export function isolationSources(
   hre: HardhatRuntimeEnvironment,
   testProfile: string | undefined,
 ): string[] {
-  const profileName =
-    testProfile ?? process.env.HARDHAT_TEST_PROFILE ?? DEFAULT_TEST_PROFILE;
+  const profileName = testProfile ?? process.env.HARDHAT_TEST_PROFILE ?? DEFAULT_TEST_PROFILE;
   const profile = hre.config.test.solidity.profiles[profileName];
 
   return [
     hre.globalOptions.gasStats ? "--gas-stats" : undefined,
-    hre.globalOptions.gasStatsJson !== undefined
-      ? "--gas-stats-json"
-      : undefined,
+    hre.globalOptions.gasStatsJson !== undefined ? "--gas-stats-json" : undefined,
     profile?.isolate === true ? "the isolate setting" : undefined,
   ].filter((source) => source !== undefined);
 }
@@ -81,9 +77,7 @@ export default async function testSolidityWithGasProfile(
     includeTraces: "all",
   })) as SolidityTestResult;
 
-  const suiteResults = result.success
-    ? result.value?.suiteResults
-    : result.error?.suiteResults;
+  const suiteResults = result.success ? result.value?.suiteResults : result.error?.suiteResults;
 
   console.log();
   // A failure to profile is reported, but it never changes the test result.
@@ -98,10 +92,7 @@ export default async function testSolidityWithGasProfile(
   } catch (error) {
     ensureError(error);
     console.warn(
-      styleText(
-        "yellow",
-        `Warning: the gas profile couldn't be written: ${error.message}`,
-      ),
+      styleText("yellow", `Warning: the gas profile couldn't be written: ${error.message}`),
     );
   }
 

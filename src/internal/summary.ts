@@ -1,10 +1,9 @@
-import type { TestProfile, UnprofiledTest } from "./model.js";
-import type { TableItem } from "@nomicfoundation/hardhat-utils/format";
-
 import { styleText } from "node:util";
 
+import type { TableItem } from "@nomicfoundation/hardhat-utils/format";
 import { formatTable } from "@nomicfoundation/hardhat-utils/format";
 
+import type { TestProfile, UnprofiledTest } from "./model.js";
 import { formatGas, plural, share, times } from "./model.js";
 
 const TOP = 5;
@@ -44,18 +43,13 @@ export function renderSummary(
           shorten(t.fullName),
           t.outcome === "failed" ? "FAILED" : t.outcome,
           formatGas(t.testGas),
-          heaviest === undefined
-            ? "–"
-            : shorten(heaviest.name) + times(heaviest),
+          heaviest === undefined ? "–" : shorten(heaviest.name) + times(heaviest),
           heaviest === undefined ? "" : share(heaviest.total, t.executed),
         ],
       });
     }
 
-    const byFunction = new Map<
-      string,
-      { self: number; calls: number; tests: number }
-    >();
+    const byFunction = new Map<string, { self: number; calls: number; tests: number }>();
     let allSelf = 0;
     for (const t of profiles) {
       for (const row of t.table) {
@@ -79,11 +73,7 @@ export function renderSummary(
       header(["Function", "Self gas", "Share", "Calls", "Tests"]),
     );
     const topFunctions = [...byFunction.entries()]
-      .sort((a, b) =>
-        b[1].self !== a[1].self
-          ? b[1].self - a[1].self
-          : a[0].localeCompare(b[0]),
-      )
+      .sort((a, b) => (b[1].self !== a[1].self ? b[1].self - a[1].self : a[0].localeCompare(b[0])))
       .slice(0, TOP);
     for (const [name, entry] of topFunctions) {
       table.push({
@@ -101,17 +91,11 @@ export function renderSummary(
 
     const hot = shown.filter((t) => t.hottest.length >= 2);
     if (hot.length > 0) {
-      const width = hot.reduce(
-        (w, t) => Math.max(w, shorten(t.fullName).length),
-        0,
-      );
+      const width = hot.reduce((w, t) => Math.max(w, shorten(t.fullName).length), 0);
       lines.push("", "  Hottest paths (share of the test's executed gas):");
       for (const t of hot) {
         const steps = t.hottest
-          .map(
-            (f) =>
-              `${shorten(f.name)}${times(f)} ${share(f.total, t.executed)}`,
-          )
+          .map((f) => `${shorten(f.name)}${times(f)} ${share(f.total, t.executed)}`)
           .join(" → ");
         lines.push(`  ${shorten(t.fullName).padEnd(width)}  ${steps}`);
       }
@@ -166,9 +150,7 @@ function notes(profiles: TestProfile[], isolation: boolean): string[] {
 /** Cuts a long name to fit the terminal; the folded files keep it whole. */
 export function shorten(name: string): string {
   const chars = [...name];
-  return chars.length > MAX_NAME_LENGTH
-    ? `${chars.slice(0, MAX_NAME_LENGTH - 1).join("")}…`
-    : name;
+  return chars.length > MAX_NAME_LENGTH ? `${chars.slice(0, MAX_NAME_LENGTH - 1).join("")}…` : name;
 }
 
 function header(cells: string[]): TableItem {

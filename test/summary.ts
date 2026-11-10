@@ -2,11 +2,8 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import { collectGasProfiles } from "../src/internal/profile.js";
-import {
-  ISOLATION_NOTE,
-  renderSummary,
-  shorten,
-} from "../src/internal/summary.js";
+import { ISOLATION_NOTE, renderSummary, shorten } from "../src/internal/summary.js";
+import { createSuiteResult } from "./helpers/suite-result.js";
 import {
   createCall,
   createFuzzTestResult,
@@ -14,14 +11,10 @@ import {
   depositTestResult,
   swapManyTimesTestResult,
 } from "./helpers/traces.js";
-import { createSuiteResult } from "./helpers/suite-result.js";
 
 function tests() {
   return collectGasProfiles([
-    createSuiteResult("GasTest", [
-      depositTestResult(),
-      createFuzzTestResult("testFuzz(uint256)"),
-    ]),
+    createSuiteResult("GasTest", [depositTestResult(), createFuzzTestResult("testFuzz(uint256)")]),
     createSuiteResult("DexTest", [swapManyTimesTestResult()]),
   ]);
 }
@@ -35,10 +28,7 @@ describe("gas-profile/summary", () => {
     assertIncludes(summary, "Router.swapExact ×5");
     assertIncludes(summary, "Vault.deposit");
     assertIncludes(summary, "Router.swapExact ×5 90.6% → Pool.swap ×5");
-    assertIncludes(
-      summary,
-      "GasTest#testFuzz: fuzz and invariant tests aren't profiled",
-    );
+    assertIncludes(summary, "GasTest#testFuzz: fuzz and invariant tests aren't profiled");
     assert.ok(!summary.includes(ISOLATION_NOTE), "expected no isolation note");
   });
 
@@ -68,17 +58,10 @@ describe("gas-profile/summary", () => {
   it("warns when the test gas is higher than the trace's gas", () => {
     const odd = collectGasProfiles([
       createSuiteResult("T", [
-        createUnitTestResult(
-          "test_x()",
-          50_000,
-          depositTestResult().callTraces(),
-        ),
+        createUnitTestResult("test_x()", 50_000, depositTestResult().callTraces()),
       ]),
     ]);
-    assertIncludes(
-      renderSummary(odd.profiles, odd.unprofiled, false),
-      "T#test_x (+5,806)",
-    );
+    assertIncludes(renderSummary(odd.profiles, odd.unprofiled, false), "T#test_x (+5,806)");
   });
 });
 

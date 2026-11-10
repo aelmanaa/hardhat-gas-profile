@@ -1,6 +1,5 @@
-import type { HardhatPlugin } from "hardhat/types/plugins";
-
 import { overrideTask } from "hardhat/config";
+import type { HardhatPlugin } from "hardhat/types/plugins";
 
 import { PLUGIN_ID } from "./internal/constants.js";
 
@@ -10,8 +9,7 @@ const hardhatGasProfilePlugin: HardhatPlugin = {
     overrideTask(["test", "solidity"])
       .addFlag({
         name: "gasProfile",
-        description:
-          "Print a gas summary and write an HTML report and folded stacks for each test",
+        description: "Print a gas summary and write an HTML report and folded stacks for each test",
       })
       .setAction(async () => await import("./internal/task-action.js"))
       .build(),
@@ -21,8 +19,7 @@ const hardhatGasProfilePlugin: HardhatPlugin = {
     overrideTask("test")
       .addFlag({
         name: "gasProfile",
-        description:
-          "Profile the gas of the Solidity tests (see `test solidity --gas-profile`)",
+        description: "Profile the gas of the Solidity tests (see `test solidity --gas-profile`)",
       })
       .setAction(async () => ({
         default: (args, _hre, runSuper) => runSuper(args),

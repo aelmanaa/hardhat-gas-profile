@@ -1,21 +1,16 @@
-import type { TestProfile, UnprofiledTest } from "./model.js";
-import type { SuiteResult } from "@nomicfoundation/edr";
-
 import path from "node:path";
 
+import type { SuiteResult } from "@nomicfoundation/edr";
 import { createNonCryptographicHashId } from "@nomicfoundation/hardhat-utils/crypto";
 import { createDebug } from "@nomicfoundation/hardhat-utils/debug";
-import {
-  exists,
-  remove,
-  writeUtf8File,
-} from "@nomicfoundation/hardhat-utils/fs";
+import { exists, remove, writeUtf8File } from "@nomicfoundation/hardhat-utils/fs";
 import { sanitizeFilename } from "@nomicfoundation/hardhat-utils/path";
 
-import { getEdrVersion, getHardhatVersion } from "./versions.js";
 import { renderReport } from "./html.js";
+import type { TestProfile, UnprofiledTest } from "./model.js";
 import { isProfiled, plural, profileTest } from "./model.js";
 import { renderSummary } from "./summary.js";
+import { getEdrVersion, getHardhatVersion } from "./versions.js";
 
 const log = createDebug("hardhat-gas-profile");
 
@@ -40,9 +35,7 @@ export interface GasProfileTests {
   unprofiled: UnprofiledTest[];
 }
 
-export function collectGasProfiles(
-  suiteResults: SuiteResult[],
-): GasProfileTests {
+export function collectGasProfiles(suiteResults: SuiteResult[]): GasProfileTests {
   const profiles: TestProfile[] = [];
   const unprofiled: UnprofiledTest[] = [];
   for (const suite of suiteResults) {
@@ -64,9 +57,7 @@ export function collectGasProfiles(
  * shortened with a hash when too long, and unique even on file systems that
  * ignore case.
  */
-export async function foldedFileNames(
-  profiles: TestProfile[],
-): Promise<string[]> {
+export async function foldedFileNames(profiles: TestProfile[]): Promise<string[]> {
   const used = new Set<string>();
   const names = new Map<TestProfile, string>();
   // Suffixes for names that differ only in case go in name order, so they
@@ -117,10 +108,7 @@ export async function writeGasProfile(
   const foldedDir = path.join(outputDir, "folded");
   const names = await foldedFileNames(profiles);
   for (const [i, test] of profiles.entries()) {
-    await writeUtf8File(
-      path.join(foldedDir, names[i]),
-      `${test.folded.join("\n")}\n`,
-    );
+    await writeUtf8File(path.join(foldedDir, names[i]), `${test.folded.join("\n")}\n`);
   }
   log(`Wrote ${profiles.length} folded files to ${foldedDir}`);
 
@@ -136,9 +124,7 @@ export async function writeGasProfile(
 
   const saved = [`Saved gas profile to ${htmlPath}`];
   if (profiles.length > 0) {
-    saved.push(
-      `Saved folded stacks to ${foldedDir} (${plural(profiles.length, "file")})`,
-    );
+    saved.push(`Saved folded stacks to ${foldedDir} (${plural(profiles.length, "file")})`);
   }
   return `${renderSummary(profiles, unprofiled, isolation)}\n\n${saved.join("\n")}`;
 }

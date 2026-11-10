@@ -1,10 +1,4 @@
-import type {
-  Frame,
-  TestOutcome,
-  TestProfile,
-  UnprofiledTest,
-} from "./model.js";
-
+import type { Frame, TestOutcome, TestProfile, UnprofiledTest } from "./model.js";
 import { formatGas, plural, share, times, walk } from "./model.js";
 import { REPORT_CSS } from "./report-css.js";
 
@@ -117,10 +111,7 @@ function colourSlots(profiles: TestProfile[]): Map<string, number> {
         frame.contract !== undefined &&
         frame.contract !== test.suite
       ) {
-        selfByContract.set(
-          frame.contract,
-          (selfByContract.get(frame.contract) ?? 0) + frame.self,
-        );
+        selfByContract.set(frame.contract, (selfByContract.get(frame.contract) ?? 0) + frame.self);
       }
     });
   }
@@ -185,9 +176,7 @@ class Page {
           ? `<span class="range">${formatGas(f.minCall)}–${formatGas(f.maxCall)}</span>`
           : "";
       const perCall =
-        f.outerCalls > 1
-          ? `${formatGas(Math.round(f.total / f.outerCalls))}${range}`
-          : "–";
+        f.outerCalls > 1 ? `${formatGas(Math.round(f.total / f.outerCalls))}${range}` : "–";
       return `<tr><th scope="row">${escapeHtml(f.name)}${tags.join("")}<span class="kind">${escapeHtml(f.kinds.join(", "))}</span></th><td data-label="Self gas">${formatGas(f.self)}</td><td data-label="Self %">${share(f.self, t.executed)}</td><td data-label="Total gas">${formatGas(f.total)}</td><td data-label="Calls">${formatGas(f.calls)}</td><td data-label="Per call">${perCall}</td></tr>`;
     });
     const refundRef =
@@ -303,9 +292,7 @@ class Page {
     }
     for (const [key, cls, text] of LEGEND_EXTRAS) {
       if (extras.has(key)) {
-        items.push(
-          `<li><span class="sw ${cls}" aria-hidden="true"></span>${text}</li>`,
-        );
+        items.push(`<li><span class="sw ${cls}" aria-hidden="true"></span>${text}</li>`);
       }
     }
     return `<ul class="legend" aria-label="Legend">${items.join("")}</ul>`;
@@ -325,9 +312,7 @@ function labels(full: string, mid: string, short: string): string {
 
 function describe(frame: Frame, t: TestProfile): string {
   if (frame.role === "group") {
-    const list = frame.grouped
-      .map((c) => `${c.name}${times(c)} ${formatGas(c.total)}`)
-      .join(", ");
+    const list = frame.grouped.map((c) => `${c.name}${times(c)} ${formatGas(c.total)}`).join(", ");
     return `${frame.count} small calls, ${formatGas(frame.total)} gas together: ${list}`;
   }
   const parts = [

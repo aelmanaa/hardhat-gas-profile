@@ -1,1 +1,5 @@
-{ "name": "basic-fixture", "type": "module", "private": true }
+{
+  "name": "basic-fixture",
+  "type": "module",
+  "private": true
+}
