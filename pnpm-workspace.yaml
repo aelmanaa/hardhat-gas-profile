@@ -1,2 +1,4 @@
 allowBuilds:
   esbuild: false
+minimumReleaseAgeExclude:
+  - hardhat@3.22.0

@@ -12,7 +12,7 @@ The profile is built from the call traces EDR already returns. A failing test is
 
 ## Requirements
 
-Hardhat with the `includeTraces` option on `test solidity` ([NomicFoundation/hardhat#8824](https://github.com/NomicFoundation/hardhat/pull/8824)). It isn't in a release yet (hardhat 3.21.2 doesn't have it). With an older hardhat, `--gas-profile` stops with an error that says so; runs without the flag are unaffected.
+Hardhat 3.22.0 or later, the first release with the `includeTraces` option on `test solidity` ([NomicFoundation/hardhat#8824](https://github.com/NomicFoundation/hardhat/pull/8824)). With an older hardhat, `--gas-profile` stops with an error that says so; runs without the flag are unaffected.
 
 ## Install
 
