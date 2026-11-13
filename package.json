@@ -1,6 +1,6 @@
 {
   "name": "hardhat-gas-profile",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Hardhat 3 plugin that profiles the gas of Solidity tests: a per-test summary, folded stacks for flamegraph tools, and an HTML report.",
   "keywords": [
     "hardhat-plugin",
