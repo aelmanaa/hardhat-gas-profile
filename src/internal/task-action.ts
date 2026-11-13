@@ -51,7 +51,7 @@ export default async function testSolidityWithGasProfile(
   if (!hre.tasks.getTask(["test", "solidity"]).options.has("includeTraces")) {
     throw new HardhatPluginError(
       PLUGIN_ID,
-      "The --gas-profile flag needs a version of hardhat whose `test solidity` task supports the includeTraces option (NomicFoundation/hardhat#8824). Update hardhat and try again.",
+      "The --gas-profile flag needs hardhat 3.22.0 or later, whose `test solidity` task supports the includeTraces option. Update hardhat and try again.",
     );
   }
 

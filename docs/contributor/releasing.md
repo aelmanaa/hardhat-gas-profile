@@ -34,11 +34,6 @@ over OIDC. Release jobs restore no dependency cache.
 
 ## Before the first release
 
-- `devDependencies.hardhat` must be a released Hardhat version that has the `includeTraces` option
-  of `test solidity` ([NomicFoundation/hardhat#8824](https://github.com/NomicFoundation/hardhat/pull/8824)).
-  While it is a `link:` to a local checkout, `pnpm install --frozen-lockfile` fails on every runner,
-  so CI is red and no release can pass, and `scripts/check-tarballs.ts` refuses a tarball whose
-  manifest still holds the `link:` range. Raise `peerDependencies.hardhat` to the same release.
 - `package.json` reads `0.0.0`, and `.changeset/first-release.md` is a `minor` changeset, so the
   first Version Packages pull request sets 0.1.0 and writes the `## 0.1.0` entry of `CHANGELOG.md`
   that `release.yml` takes the release notes from. 0.0.0 is never published.
